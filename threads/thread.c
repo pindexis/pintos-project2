@@ -620,34 +620,23 @@ allocate_tid (void)
    Used by switch.S, which can't figure it out on its own. */
 uint32_t thread_stack_ofs = offsetof (struct thread, stack);
 
-#ifdef USERPROG
-  /* Owned by userprog/process.c. */
-  struct thread *
-  thread_get(tid_t tid)
-  {
-    struct list_elem *e;
-    struct thread * dest_thread = NULL;
-    enum intr_level old_level;
+struct thread *
+thread_get(tid_t tid)
+{
+  struct list_elem *e;
+  struct thread * dest_thread = NULL;
+  enum intr_level old_level;
 
-    old_level = intr_disable ();
-    for (e = list_begin (&all_list); e != list_end (&all_list);
-         e = list_next (e))
-      {
-        struct thread *t = list_entry (e, struct thread, allelem);
-        if (tid == t->tid){
-          dest_thread = t;
-          break;
-        }
+  old_level = intr_disable ();
+  for (e = list_begin (&all_list); e != list_end (&all_list);
+       e = list_next (e))
+    {
+      struct thread *t = list_entry (e, struct thread, allelem);
+      if (tid == t->tid){
+        dest_thread = t;
+        break;
       }
-    intr_set_level (old_level);
-    return dest_thread;
-  }
-
-  bool thread_is_parent_of(tid_t tid){
-    struct thread *t = thread_get(tid);
-    if(t == NULL || t->parent_tid != thread_tid()){
-      return false;
     }
-    return true;
-  }
-#endif
+  intr_set_level (old_level);
+  return dest_thread;
+}

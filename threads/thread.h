@@ -99,7 +99,7 @@ struct thread
     /* Owned by userprog/process.c. */
     char *prog_name;
     uint32_t *pagedir;                  /* Page directory. */
-    tid_t parent_tid;
+    struct list children;
     struct list desc_table;
     int next_fd;
     struct file *executable; // file structure referring the the executable, used to deny writing to the file as long as the process is running(and close it upon exit)
@@ -146,12 +146,6 @@ int thread_get_nice (void);
 void thread_set_nice (int);
 int thread_get_recent_cpu (void);
 int thread_get_load_avg (void);
-
-
-#ifdef USERPROG
-  /* Owned by userprog/process.c. */
-  struct thread *thread_get(tid_t tid);
-  bool thread_is_parent_of(tid_t tid);
-#endif
+struct thread *thread_get(tid_t tid);
 
 #endif /* threads/thread.h */

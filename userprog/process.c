@@ -19,8 +19,7 @@
 #include "threads/vaddr.h"
 #include "threads/synch.h"
 #include "threads/malloc.h"
-
-typedef int pid_t;
+#include "userprog/ipc.h"
 
 static thread_func start_process NO_RETURN;
 static bool load (const char *cmdline, void (**eip) (void), void **esp);
@@ -29,44 +28,28 @@ static void extract_command_name(char * cmd_string, char *command_name);
 static void extract_command_args(char * cmd_string, char* argv[], int *argc);
 void process_close_all(void);
 
-struct process_exit_status{
+
+struct process_pid{
+  int pid;
   struct list_elem elem;
-  int status;
-  pid_t pid;
-  pid_t parent_pid;
 };
-// a list that keeps track of all died process in the system
-// managed by wait/exit functions
-static struct list process_history_list;
-
-
-
-struct process_waiting{
-  struct list_elem elem;
-  struct semaphore sem;
-  pid_t waiting_for;
-};
-// basic publish/subscribe model, where the child (waiting_for) will unlock the lock, causing the parent to unblock and
-// parses the process_stats to find out the exist status
-// managed by wait/exit functions
-static struct list process_waiting_list;
-
 
 void process_init(void)
 {
-  list_init(&process_history_list);
-  list_init(&process_waiting_list);
+  ipc_init();
+  // the kernel main thread(process) can have children
+  list_init(&thread_current()->children);
 }
 
 /* Starts a new thread running a user program loaded from
    FILENAME.  The new thread may be scheduled (and may even exit)
    before process_execute() returns.  Returns the new process's
    thread id, or TID_ERROR if the thread cannot be created. */
-tid_t
+pid_t
 process_execute (const char *file_name)
 {
   char *fn_copy;
-  tid_t tid;
+  pid_t tid;
 
   /* Make a copy of FILE_NAME.
      Otherwise there's a race between the caller and load(). */
@@ -76,21 +59,12 @@ process_execute (const char *file_name)
   strlcpy (fn_copy, file_name, PGSIZE);
 
   // make another copy of file name, which will be saved as a property in the process structure
-  char *cmd_name = malloc (sizeof(char)*(strlen(fn_copy)+1));
+  char *cmd_name = malloc (strlen(fn_copy)+1);
   if (cmd_name == NULL)
     return TID_ERROR;
   extract_command_name(fn_copy, cmd_name);
-
-  struct semaphore sem;
-  sema_init(&sem,0);
-  int result = 0;
-  void *args[2];
-  args[0] = fn_copy;
-  args[1] = &sem;
-  args[2] = &result;
-
   /* Create a new thread to execute FILE_NAME. */
-  tid = thread_create (file_name, PRI_DEFAULT, start_process, args);
+  tid = thread_create (file_name, PRI_DEFAULT, start_process, fn_copy);
   if (tid == TID_ERROR){
     palloc_free_page (fn_copy);
     free(cmd_name);
@@ -98,24 +72,28 @@ process_execute (const char *file_name)
   }
   // update thread with userprog properties
   struct thread *t = thread_get(tid);
-  t->parent_tid = thread_tid();
-  t->prog_name = cmd_name;
   t->next_fd = 2;
+  t->prog_name = cmd_name;
   list_init(&t->desc_table);
+  list_init(&t->children);
 
-  sema_down(&sem);
-  return result;
+  int status = ipc_pipe_read("exec", tid);
+  if (status != -1){
+    // add the process as a child
+    struct process_pid *p = malloc(sizeof(struct process_pid));
+    p->pid = status;
+    list_push_back(&thread_current()->children, &p->elem);
+  }
+  return status;
 }
 
 /* A thread function that loads a user process and starts it
    running. */
 static void
-start_process (void *args)
+start_process (void *file_name_)
 {
 
-  char *file_name = ((char **)args)[0];
-  struct semaphore *sem = ((struct semaphore **)args)[1];
-  int* result = ((int **)args)[2];
+  char *file_name = file_name_;
 
   struct intr_frame if_;
   bool success;
@@ -130,12 +108,12 @@ start_process (void *args)
   palloc_free_page (file_name);
 
   /* If load failed, quit. */
-  sema_up(sem);
   if (!success){
-    *result = -1;
+    ipc_pipe_write("exec", thread_tid(), -1);
     thread_exit (-1);
   }
-  *result = thread_tid();
+  ipc_pipe_write("exec", thread_tid(), thread_tid());  
+  
   /* Start the user process by simulating a return from an
      interrupt, implemented by intr_exit (in
      threads/intr-stubs.S).  Because intr_exit takes all of its
@@ -146,6 +124,30 @@ start_process (void *args)
   NOT_REACHED ();
 }
 
+static bool process_is_parent_of(pid_t pid){
+  struct list_elem *e; 
+  for (e = list_begin (&thread_current()->children); e != list_end (&thread_current()->children);
+       e = list_next (e))
+    {
+      if(list_entry(e, struct process_pid, elem)->pid == pid){
+        return true;
+      };
+    }
+  return false;
+}
+
+static void remove_child(pid_t pid){
+  struct list_elem *e = NULL; 
+  for (e = list_begin (&thread_current()->children); e != list_end (&thread_current()->children);
+       e = list_next (e))
+    {
+      if(list_entry(e, struct process_pid, elem)->pid == pid){
+        break;
+      };
+    }
+  if (e != NULL)
+    list_remove(e);
+}
 /* Waits for thread TID to die and returns its exit status.  If
    it was terminated by the kernel (i.e. killed due to an
    exception), returns -1.  If TID is invalid or if it was not a
@@ -156,34 +158,12 @@ start_process (void *args)
    This function will be implemented in problem 2-2.  For now, it
    does nothing. */
 int
-process_wait (tid_t child_tid)
+process_wait (pid_t child_tid)
 {
-  if(thread_get(child_tid) != NULL){
-    if(!thread_is_parent_of(child_tid)){
-      return -1;
-    }
-    //thread still running
-    struct process_waiting *pw = malloc(sizeof(struct process_waiting));
-    sema_init(&pw->sem, 0);
-    pw->waiting_for = child_tid;
-    list_push_back(&process_waiting_list, &pw->elem);
-    sema_down(&pw->sem);
-  }
-
-  struct list_elem *e;
-  for (e = list_begin (&process_history_list); e != list_end (&process_history_list);
-       e = list_next (e))
-  {
-    struct process_exit_status *pe = list_entry (e, struct process_exit_status, elem);
-    if(pe->pid == child_tid && pe->parent_pid == thread_tid()){
-      list_remove(e);
-      int st = pe->status;
-      free(pe);
-      return st;
-    }
-  }
-  return -1;
-
+  if(!process_is_parent_of(child_tid))
+    return -1;
+  remove_child(child_tid); // hack: remove the child from a process children list to make sure a process can't wait for a child twice
+  return ipc_pipe_read("wait", child_tid);
 }
 
 
@@ -191,27 +171,8 @@ process_wait (tid_t child_tid)
 void
 process_exit (int status)
 {
-  struct thread * cur = thread_current();
-  struct process_exit_status *ph = malloc(sizeof(struct process_exit_status));
-  ph->status = status;
-  ph->pid = thread_tid();
-  ph->parent_pid = cur->parent_tid;
-  list_push_back(&process_history_list, &ph->elem);
-
-  struct list_elem *e;
-  for (e = list_begin (&process_waiting_list); e != list_end (&process_waiting_list);
-       e = list_next (e))
-  {
-    if (list_entry (e, struct process_waiting, elem)->waiting_for == thread_tid()){
-      break;
-    }
-  }
-  if (e != list_end (&process_waiting_list)){
-    struct process_waiting * pw = list_entry(e, struct process_waiting, elem);
-    sema_up (&(pw->sem));
-    list_remove(e);
-    free(pw);
-  }
+  struct thread *cur = thread_current();
+  ipc_pipe_write("wait", cur->tid, status);
   // return if it's a kernel thread
   if(thread_tid() == 1){
     return;
@@ -221,6 +182,8 @@ process_exit (int status)
   printf("%s: exit(%d)\n", cur->prog_name, status);
 
   uint32_t *pd;
+
+  //TODO: de-allocate 'children' and 'prog_name' attributes
 
   /* Destroy the current process's page directory and switch back
      to the kernel-only page directory. */
