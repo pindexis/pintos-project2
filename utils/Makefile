@@ -1,7 +1,7 @@
 all: setitimer-helper squish-pty squish-unix
 
 CC = gcc
-CFLAGS = -Wall -W
+CFLAGS = -Wall -W -lm
 LDFLAGS = -lm
 setitimer-helper: setitimer-helper.o
 squish-pty: squish-pty.o
