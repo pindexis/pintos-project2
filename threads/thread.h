@@ -88,6 +88,8 @@ struct thread
     char name[16];                      /* Name (for debugging purposes). */
     uint8_t *stack;                     /* Saved stack pointer. */
     int priority;                       /* Priority. */
+    int64_t wakeup_time;                /* when the thread is sleeping, this indicates the wake up time,
+                                          I hate putting this here ):*/
     struct list_elem allelem;           /* List element for all threads list. */
 
     /* Shared between thread.c and synch.c. */
@@ -95,7 +97,12 @@ struct thread
 
 #ifdef USERPROG
     /* Owned by userprog/process.c. */
+    char *prog_name;
     uint32_t *pagedir;                  /* Page directory. */
+    tid_t parent_tid;
+    struct list desc_table;
+    int next_fd;
+    struct file *executable; // file structure referring the the executable, used to deny writing to the file as long as the process is running(and close it upon exit)
 #endif
 
     /* Owned by thread.c. */
@@ -110,20 +117,22 @@ extern bool thread_mlfqs;
 void thread_init (void);
 void thread_start (void);
 
-void thread_tick (void);
+void thread_tick (int64_t ticks);
 void thread_print_stats (void);
 
 typedef void thread_func (void *aux);
 tid_t thread_create (const char *name, int priority, thread_func *, void *);
 
+void thread_sleep (int64_t until);
 void thread_block (void);
 void thread_unblock (struct thread *);
 
 struct thread *thread_current (void);
 tid_t thread_tid (void);
+
 const char *thread_name (void);
 
-void thread_exit (void) NO_RETURN;
+void thread_exit (int status) NO_RETURN;
 void thread_yield (void);
 
 /* Performs some operation on thread t, given auxiliary data AUX. */
@@ -137,5 +146,12 @@ int thread_get_nice (void);
 void thread_set_nice (int);
 int thread_get_recent_cpu (void);
 int thread_get_load_avg (void);
+
+
+#ifdef USERPROG
+  /* Owned by userprog/process.c. */
+  struct thread *thread_get(tid_t tid);
+  bool thread_is_parent_of(tid_t tid);
+#endif
 
 #endif /* threads/thread.h */
