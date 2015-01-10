@@ -5,6 +5,7 @@
 #include "threads/interrupt.h"
 #include "threads/thread.h"
 #include "userprog/process.h"
+#include "vm/page.h"
 
 /* Number of page faults processed. */
 static long long page_fault_cnt;
@@ -149,6 +150,9 @@ page_fault (struct intr_frame *f)
   write = (f->error_code & PF_W) != 0;
   user = (f->error_code & PF_U) != 0;
 
+  // should be called for both user and kernel mode, because a sys call can have as argument a pointer to a non loaded page
+  if(page_handle_page_fault(fault_addr))
+    return;
   // I also need to make sure that exception occurred while accessing user stack, not for every fault
   // how I can do that??
   if (!user){
@@ -156,7 +160,6 @@ page_fault (struct intr_frame *f)
     f->eax= 0xffffffff;
     return;
   }
-  thread_exit(-1);
 
   /* To implement virtual memory, delete the rest of the function
      body, and replace it with code that brings in the page to

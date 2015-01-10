@@ -30,6 +30,11 @@ static inline uintptr_t pg_no (const void *va) {
   return (uintptr_t) va >> PGBITS;
 }
 
+/* Virtual page address. */
+static inline uint8_t * pg_addr (const void *va) {
+  return (uint8_t *)(((uintptr_t)va >> PGBITS) << PGBITS);
+}
+
 /* Round up to nearest page boundary. */
 static inline void *pg_round_up (const void *va) {
   return (void *) (((uintptr_t) va + PGSIZE - 1) & ~PGMASK);

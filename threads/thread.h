@@ -4,6 +4,7 @@
 #include <debug.h>
 #include <list.h>
 #include <stdint.h>
+#include <hash.h>
 
 /* States in a thread's life cycle. */
 enum thread_status
@@ -105,6 +106,9 @@ struct thread
     struct file *executable; // file structure referring the the executable, used to deny writing to the file as long as the process is running(and close it upon exit)
 #endif
 
+#ifdef VM
+    struct hash spt; // supplement page directory
+#endif
     /* Owned by thread.c. */
     unsigned magic;                     /* Detects stack overflow. */
   };

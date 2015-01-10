@@ -9,6 +9,8 @@
 #define CMD_LENGTH_MAX 100
 typedef int pid_t;
 
+struct thread *process_current(void);
+pid_t process_pid(void);
 
 pid_t process_execute (const char *file_name);
 int process_wait (pid_t);
