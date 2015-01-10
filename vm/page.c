@@ -54,7 +54,7 @@ void page_lazy_load(const void *upage, pagefault_handler *handler, void *args){
 bool page_handle_page_fault(const void *addr){
     uint32_t * upage = (uint32_t *) pg_addr(addr);
     if(page_lookup(upage) == NULL){
-        printf("page not found %p\n", upage);
+        //printf("page not found %p\n", upage);
         // invalid access
         return false;
     }
@@ -62,6 +62,10 @@ bool page_handle_page_fault(const void *addr){
     struct page *page = page_lookup(upage);
     page->pagefault_handler(upage, page->pagefault_handler_args);
     hash_delete(&process_current()->spt, &page->hash_elem);
+    //free resources
+    if(page->pagefault_handler_args != NULL)
+      free(page->pagefault_handler_args);
+    free(page);
     return true;
 }
 
