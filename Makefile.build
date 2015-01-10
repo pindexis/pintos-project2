@@ -64,6 +64,7 @@ userprog_SRC += userprog/ipc.c		# IPC management.
 
 # virtual memory code.
 vm_SRC = vm/page.c
+vm_SRC += vm/frame.c
 
 # Filesystem code.
 filesys_SRC  = filesys/filesys.c	# Filesystem core.

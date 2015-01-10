@@ -21,6 +21,7 @@
 #include "threads/malloc.h"
 #include "userprog/ipc.h"
 #include "vm/page.h"
+#include "vm/frame.h"
 
 static thread_func start_process NO_RETURN;
 static bool load (const char *cmdline, void (**eip) (void), void **esp);
@@ -38,6 +39,7 @@ struct process_pid{
 void process_init(void)
 {
   ipc_init();
+  frame_init();
   // the kernel main thread(process) can have children
   list_init(&process_current()->children);
 }
@@ -486,7 +488,7 @@ validate_segment (const struct Elf32_Phdr *phdr, struct file *file)
               uint32_t read_bytes, uint32_t zero_bytes, off_t ofs, bool writable){
 
   /* Get a page of memory. */
-  uint8_t *kpage = palloc_get_page (PAL_USER);
+  uint8_t *kpage = frame_get_page (false);
   if (kpage == NULL)
     PANIC("cannot allocate a free page");
   file_seek (file, ofs);
@@ -585,7 +587,7 @@ setup_stack (void **esp, char **argv, int argc)
   uint8_t *kpage;
   bool success = false;
 
-  kpage = palloc_get_page (PAL_USER | PAL_ZERO);
+  kpage = frame_get_page (true);
   if (kpage != NULL)
     {
       success = install_page (((uint8_t *) PHYS_BASE) - PGSIZE, kpage, true);
